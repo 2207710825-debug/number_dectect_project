@@ -5,8 +5,8 @@ from torchvision import transforms
 from PIL import Image
 
 # 默认数据路径配置
-DEFAULT_TRAIN_DIR = r"E:\pythondemo\number_dectect_project\imagedata\training_img"
-DEFAULT_TEST_DIR = r"E:\pythondemo\number_dectect_project\imagedata\test_img"
+DEFAULT_TRAIN_DIR = r"E:\pythondemo\number_dectect_project\imagedata\training_augmented"
+DEFAULT_TEST_DIR = r"E:\pythondemo\number_dectect_project\imagedata\resized_32x32"
 
 # 统一的数据预处理流程（避免重复定义）
 DEFAULT_TRANSFORM = transforms.Compose([

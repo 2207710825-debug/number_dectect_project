@@ -46,7 +46,7 @@ number_dectect_project/
   - `mode='val'`：返回对应的验证集子集（与训练集同源，使用固定随机种子保证可复现）。
   - `mode='test'`：从测试目录读取，作为独立评估集。
 
-### 2. `model/Model.py` — 模型定义
+### 2. `model/FC.py` — 模型定义
 
 **`CharacterNet`**：三层全连接神经网络（MLP），结构如下：
 

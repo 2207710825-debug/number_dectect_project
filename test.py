@@ -2,8 +2,9 @@
 '''
 @Author   ：shenwenjun
 @Date     ：2026/9/14 17:34
-@Describe ：测试脚本 —— 包含准确率评估、混淆矩阵绘制与 0~9 抽样预测可视化
+@Describe ：测试脚本 —— 包含各类别准确率评估、混淆矩阵绘制与 0~9 抽样预测可视化
 '''
+
 import os
 import torch
 import numpy as np
@@ -17,7 +18,9 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix, classification_report
 
 from imagedata.dataset import get_dataset
-from model.Model import CharacterNet
+#from model.FC import CharacterNet
+from model.CNN import CharacterNet
+
 
 # 中文字体显示配置
 plt.rcParams['font.sans-serif'] = ['SimHei']
@@ -28,7 +31,7 @@ def plot_confusion_matrix(all_targets, all_preds, save_path):
     """
     绘制并保存混淆矩阵热力图
     """
-    cm = confusion_matrix(all_targets, all_preds)
+    cm = confusion_matrix(all_targets, all_preds, labels=list(range(10)))
 
     plt.figure(figsize=(9, 7))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
@@ -44,9 +47,37 @@ def plot_confusion_matrix(all_targets, all_preds, save_path):
     print(f"[已保存] 混淆矩阵热力图已输出至: {save_path}")
 
 
+def print_and_get_per_class_accuracy(all_targets, all_preds, num_classes=10):
+    """
+    计算并输出每个类别的准确率
+    """
+    cm = confusion_matrix(all_targets, all_preds, labels=list(range(num_classes)))
+    # 主对角线即为各个类别预测正确的数量
+    class_correct = cm.diagonal()
+    # 每一行的和即为该类别的真实样本总数
+    class_total = cm.sum(axis=1)
+
+    lines = []
+    lines.append("\n" + "-" * 45)
+    lines.append("各类别测试准确率统计 (Per-Class Accuracy):")
+    lines.append("-" * 45)
+
+    for i in range(num_classes):
+        if class_total[i] > 0:
+            acc = 100.0 * class_correct[i] / class_total[i]
+            lines.append(f"数字 [{i}]: 准确率 = {acc:6.2f}%  (正确数/总数: {class_correct[i]}/{class_total[i]})")
+        else:
+            lines.append(f"数字 [{i}]: 无测试样本")
+    lines.append("-" * 45)
+
+    per_class_str = "\n".join(lines)
+    print(per_class_str)
+    return per_class_str
+
+
 def run_test(test_dir=None,
-             model_path="result/character_net.pth",
-             save_dir="result"):
+             model_path="result/train_result/character_net.pth",
+             save_dir="result/test_result"):
     """
     加载模型权重并对独立测试集进行推理、绘制混淆矩阵与抽样可视化
     """
@@ -67,7 +98,7 @@ def run_test(test_dir=None,
     test_dataset = get_dataset(mode='test', data_dir=test_dir)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
-    actual_test_dir = test_dir if test_dir else test_dataset.data_dir
+    actual_test_dir = test_dir if test_dir else getattr(test_dataset, 'data_dir', '未知路径')
 
     all_targets = []
     all_preds = []
@@ -96,10 +127,13 @@ def run_test(test_dir=None,
     # 计算总体准确率
     correct = (np.array(all_targets) == np.array(all_preds)).sum()
     total = len(all_targets)
-    accuracy = 100.0 * correct / total
+    accuracy = 100.0 * correct / total if total > 0 else 0.0
 
     print(f"测试集总样本数: {total}")
-    print(f"测试集最终准确率: {accuracy:.2f}%")
+    print(f"测试集总体准确率: {accuracy:.2f}%")
+
+    # 打印并获取各类别准确率文本
+    per_class_summary = print_and_get_per_class_accuracy(all_targets, all_preds, num_classes=10)
     print("=" * 40)
 
     os.makedirs(save_dir, exist_ok=True)
@@ -108,16 +142,18 @@ def run_test(test_dir=None,
     cm_save_path = os.path.join(save_dir, "confusion_matrix.png")
     plot_confusion_matrix(all_targets, all_preds, cm_save_path)
 
-    # 5. 保存详细文本报告（包含分类指标：精确率 Precision, 召回率 Recall, F1-score）
+    # 5. 保存详细文本报告（包含分类指标：精准率 Precision, 召回率 Recall, F1-score）
     txt_save_path = os.path.join(save_dir, "test_result.txt")
     with open(txt_save_path, "w", encoding="utf-8") as f:
         f.write("=== 测试集识别结果汇总 ===\n")
         f.write(f"测试集路径: {actual_test_dir}\n")
         f.write(f"测试集总样本数: {total}\n")
-        f.write(f"测试集最终准确率: {accuracy:.2f}%\n\n")
+        f.write(f"测试集总体准确率: {accuracy:.2f}%\n")
+        f.write(f"{per_class_summary}\n\n")
 
         f.write("=== 分类评估报告 (Precision, Recall, F1-Score) ===\n")
-        f.write(classification_report(all_targets, all_preds, digits=4))
+        # 加上 zero_division=0 防止零预测时的警告输出
+        f.write(classification_report(all_targets, all_preds, digits=4, zero_division=0))
         f.write("\n" + "=" * 50 + "\n")
 
         f.write("=== 各类别抽样识别详情 ===\n")
@@ -136,7 +172,11 @@ def run_test(test_dir=None,
 
         for i, (img_tensor, pred_l, fname) in enumerate(items):
             plt.subplot(4, 4, i + 1)
-            img = img_tensor.squeeze().numpy() * 0.3081 + 0.1307
+
+            # 反归一化：配合 transforms.Normalize((0.5,), (0.5,)) 恢复到 [0, 1] 显示区间
+            img = img_tensor.squeeze().numpy() * 0.5 + 0.5
+            img = np.clip(img, 0, 1)  # 限制在 [0, 1] 像素合法区间
+
             plt.imshow(img, cmap='gray')
 
             color = 'green' if cls_label == pred_l else 'red'
